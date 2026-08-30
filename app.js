@@ -278,6 +278,8 @@ async function refreshIndices() {
 
 // ==================== 市场总览 ====================
 let rankTab = "up";
+let rankPage = 1;
+const RANK_PAGE_SIZE = 30;
 function renderMarket() {
   if (!universe.length) return;
   const up = universe.filter(s => s.ch > 0).length;
@@ -292,19 +294,42 @@ function renderMarket() {
     `<span>平 <b>${flat}</b></span><span>涨停级 <b class="c-up">${limUp}</b></span>` +
     `<span>跌停级 <b class="c-down">${limDown}</b></span>`;
 
-  let rows;
-  if (rankTab === "up") rows = [...universe].sort((a, b) => b.ch - a.ch).slice(0, 12);
-  else if (rankTab === "down") rows = [...universe].sort((a, b) => a.ch - b.ch).slice(0, 12);
-  else if (rankTab === "amt") rows = [...universe].sort((a, b) => (b.amt || 0) - (a.amt || 0)).slice(0, 12);
-  else rows = [...universe].sort((a, b) => (b.turn || 0) - (a.turn || 0)).slice(0, 12);
+  let all;
+  if (rankTab === "up") all = [...universe].sort((a, b) => b.ch - a.ch);
+  else if (rankTab === "down") all = [...universe].sort((a, b) => a.ch - b.ch);
+  else if (rankTab === "amt") all = [...universe].sort((a, b) => (b.amt || 0) - (a.amt || 0));
+  else all = [...universe].sort((a, b) => (b.turn || 0) - (a.turn || 0));
+  const maxPage = Math.max(1, Math.ceil(all.length / RANK_PAGE_SIZE));
+  if (rankPage > maxPage) rankPage = maxPage;
+  if (rankPage < 1) rankPage = 1;
+  const start = (rankPage - 1) * RANK_PAGE_SIZE;
+  const rows = all.slice(start, start + RANK_PAGE_SIZE);
   $("rankList").innerHTML = rows.map((s, i) => `<div class="rk-row" data-code="${s.c}">
-    <span class="rk-i">${i + 1}</span><span class="rk-code">${s.c}</span>
+    <span class="rk-i">${start + i + 1}</span><span class="rk-code">${s.c}</span>
     <span class="rk-name">${s.n}</span><span class="rk-price">${fmt2(s.p)}</span>
     <span class="rk-chg ${clsOf(s.ch)}">${fmtPct(s.ch)}</span>
     <span class="rk-extra">${rankTab === "amt" ? "额" + fmtYi(s.amt) : rankTab === "turn" ? "换" + (s.turn || 0).toFixed(1) + "%" : "额" + fmtYi(s.amt)}</span>
   </div>`).join("");
   $("rankList").querySelectorAll(".rk-row").forEach(el =>
     el.addEventListener("click", () => selectStock(el.dataset.code)));
+
+  // 分页条
+  const pager = $("rankPager");
+  if (all.length > RANK_PAGE_SIZE) {
+    pager.classList.remove("hidden");
+    $("pgPrev").disabled = rankPage <= 1;
+    $("pgNext").disabled = rankPage >= maxPage;
+    $("pgInfo").textContent = `第 ${rankPage} / ${maxPage} 页 · 共${all.length}只`;
+    $("pgInput").max = maxPage;
+    $("pgInput").value = rankPage;
+  } else {
+    pager.classList.add("hidden");
+  }
+}
+function gotoRankPage(p) {
+  rankPage = Math.max(1, Math.floor(+p || 1));
+  renderMarket();
+  $("rankList").scrollTop = 0;
 }
 
 // ==================== 个股详情 ====================
@@ -531,14 +556,19 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".search-box")) $("searchDrop").classList.add("hidden");
 });
 
-// ==================== 榜单tab ====================
+// ==================== 榜单tab & 分页 ====================
 document.querySelectorAll(".rt-btn").forEach(b =>
   b.addEventListener("click", () => {
     document.querySelectorAll(".rt-btn").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
     rankTab = b.dataset.tab;
+    rankPage = 1;   // 切榜回到第一页
     renderMarket();
   }));
+$("pgPrev").addEventListener("click", () => gotoRankPage(rankPage - 1));
+$("pgNext").addEventListener("click", () => gotoRankPage(rankPage + 1));
+$("pgGo").addEventListener("click", () => gotoRankPage(+$("pgInput").value));
+$("pgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") gotoRankPage(+$("pgInput").value); });
 
 // ==================== 刷新调度 ====================
 async function refreshAll() {

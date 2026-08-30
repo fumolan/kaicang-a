@@ -54,7 +54,7 @@ main { padding: 0 16px 16px; }
 .rank-tabs { display: flex; gap: 6px; margin-bottom: 6px; }
 .rt-btn { background: var(--bg); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
 .rt-btn.active { color: var(--accent); border-color: var(--accent); }
-.rank-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
+.rank-list { display: flex; flex-direction: column; gap: 2px; max-height: 560px; overflow-y: auto; }
 .rk-row { display: flex; gap: 10px; padding: 3px 8px; font-size: 12px; border-radius: 5px; cursor: pointer; font-variant-numeric: tabular-nums; }
 .rk-row:hover { background: rgba(240,185,11,0.08); }
 .rk-row:nth-child(odd) { background: rgba(42,50,66,0.22); }
@@ -110,3 +110,11 @@ main { padding: 0 16px 16px; }
 
 .uni-retry { background: rgba(240,185,11,0.12); color: var(--accent); border: 1px solid rgba(240,185,11,0.4); border-radius: 5px; padding: 1px 8px; font-size: 10.5px; cursor: pointer; margin-left: 6px; }
 .uni-retry:hover { background: rgba(240,185,11,0.25); }
+
+/* 榜单分页 */
+.rank-pager { display: flex; align-items: center; gap: 8px; margin-top: 8px; justify-content: center; }
+.pg-btn { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
+.pg-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pg-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.pg-info { font-size: 11.5px; color: var(--muted); }
+.pg-input { width: 58px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; font-size: 11.5px; text-align: center; }
