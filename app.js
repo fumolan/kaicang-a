@@ -79,9 +79,34 @@ function parseTX(v) {
   };
 }
 
-// ==================== 东方财富: 全市场列表(可选升级) ====================
-const EM_LIST = "https://push2.eastmoney.com/api/qt/clist/get";
+// ==================== 东方财富: 全市场列表(JSONP跨域 + 双主机回退) ====================
+const EM_HOSTS = ["https://push2delay.eastmoney.com", "https://push2.eastmoney.com"];
 const UNI_KEY = "astk_universe_v1";
+let emJsonpSeq = 0;
+
+function emJsonp(host, params, timeoutMs = 9000) {
+  return new Promise((resolve, reject) => {
+    const fn = "emcb_" + (++emJsonpSeq) + "_" + Date.now();
+    const s = document.createElement("script");
+    const q = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    let settled = false;
+    const cleanup = () => { delete window[fn]; s.remove(); };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true; cleanup(); reject(new Error("timeout"));
+    }, timeoutMs);
+    window[fn] = (d) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); cleanup(); resolve(d);
+    };
+    s.onerror = () => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); cleanup(); reject(new Error("load error"));
+    };
+    s.src = `${host}/api/qt/clist/get?${q}&cb=${fn}`;
+    document.head.appendChild(s);
+  });
+}
 
 async function emGet(url, params) {
   const q = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
@@ -94,49 +119,53 @@ async function emGet(url, params) {
   } finally { clearTimeout(t); }
 }
 
-// 全量列表(约5900只): 东财push2在本网络可能被WAF拦截, 失败静默降级核心池
+// 全量列表(约5900只): JSONP逐页拉取(服务端单页上限100条, 全量约60页)
 async function tryFullUniverse() {
+  let host = null;
+  for (const h of EM_HOSTS) {
+    try {
+      const d = await emJsonp(h, {
+        pn: "1", pz: "100", po: "0", np: "1", fltt: "2", invt: "2", fid: "f12",
+        fs: "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
+        fields: "f2,f3,f6,f8,f12,f14",
+      }, 7000);
+      if (d?.data?.diff) { host = h; break; }
+    } catch (e) { /* 换下一个主机 */ }
+  }
+  if (!host) return null;
   const rows = [];
-  const base = {
-    pn: "1", pz: "200", po: "0", np: "1", fltt: "2", invt: "2", fid: "f12",
-    fs: "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
-    fields: "f2,f3,f6,f8,f12,f14",
-  };
-  for (let pn = 1; pn < 40; pn++) {
-    base.pn = String(pn);
+  for (let pn = 1; pn <= 80; pn++) {
     let d;
-    try { d = await emGet(EM_LIST, base); } catch (e) { return null; }  // 被拦/超时 → 放弃升级
+    try {
+      d = await emJsonp(host, {
+        pn: String(pn), pz: "100", po: "0", np: "1", fltt: "2", invt: "2", fid: "f12",
+        fs: "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
+        fields: "f2,f3,f6,f8,f12,f14",
+      });
+    } catch (e) { break; }
     const diff = d?.data?.diff;
-    if (!diff) break;
-    for (const it of diff) rows.push({ c: it.f12, n: it.f14 });
-    if (pn * 200 >= (d?.data?.total || 0)) break;
-    await new Promise(r => setTimeout(r, 120));
+    if (!diff || !diff.length) break;
+    for (const it of diff) {
+      const code = it.f12, name = it.f14;
+      if (!code || !name) continue;
+      const num = (x) => { const n = parseFloat(x); return isNaN(n) ? 0 : n; };
+      rows.push({
+        c: code, n: name,
+        p: num(it.f2), ch: num(it.f3), amt: num(it.f6), turn: num(it.f8),
+      });
+    }
+    const total = d?.data?.total || 0;
+    if (diff.length < 100 || rows.length >= total) break;   // 到末页
+    await new Promise(r => setTimeout(r, 60));
   }
   return rows.length > 5000 ? rows : null;
 }
 
-// 核心池/全量池 + 腾讯实时行情合并 → universe(带价格/涨跌/成交额/换手)
-async function loadUniverse() {
-  // 1. 先用核心池立刻可用
-  let base = BAKED_UNIVERSE.map(s => ({ ...s }));
-  let src = "核心池131只";
-  // 2. 尝试东财全量升级(异步, 不阻塞太久)
-  try {
-    const cache = JSON.parse(localStorage.getItem(UNI_KEY) || "null");
-    if (cache && cache.date === todayStr() && cache.rows.length > 5000) {
-      base = cache.rows; src = `全市场${base.length}只`;
-    } else {
-      const full = await tryFullUniverse();
-      if (full) {
-        base = full; src = `全市场${full.length}只`;
-        try { localStorage.setItem(UNI_KEY, JSON.stringify({ date: todayStr(), rows: full })); } catch (e) {}
-      }
-    }
-  } catch (e) { /* 保持核心池 */ }
-  // 3. 腾讯批量实时行情补全指标(40个/批)
-  const withMetrics = [...base];
-  for (let i = 0; i < withMetrics.length && i < 400; i += 40) {
-    const batch = withMetrics.slice(i, i + 40);
+// 核心池 + 腾讯实时行情 → universe(立即可用)
+async function loadCorePool() {
+  const pool = BAKED_UNIVERSE.map(s => ({ ...s }));
+  for (let i = 0; i < pool.length; i += 40) {
+    const batch = pool.slice(i, i + 40);
     const q = await fetchTX(batch.map(s => s.c));
     batch.forEach(s => {
       const d = q[s.c];
@@ -144,11 +173,50 @@ async function loadUniverse() {
         s.p = d.price; s.ch = d.changePct ?? 0;
         s.amt = (d.amountWan || 0) * 1e4; s.turn = d.turnoverPct ?? 0;
         s.pe = d.peTtm; s.pb = d.pb; s.mc = d.mcap;
-      } else { s.p = s.p || 0; s.ch = s.ch || 0; s.amt = 0; s.turn = 0; }
+      } else { s.p = 0; s.ch = 0; s.amt = 0; s.turn = 0; }
     });
   }
-  universe = withMetrics;
-  universeSource = src;
+  universe = pool;
+  universeSource = `核心池${pool.length}只`;
+}
+
+// 全市场升级: 缓存(当日)优先, 否则东财JSONP分页拉取(约5900只)
+async function upgradeUniverse(force = false) {
+  if (upgrading) return;
+  upgrading = true;
+  setUniInfo("全市场加载中…");
+  try {
+    if (!force) {
+      try {
+        const cache = JSON.parse(localStorage.getItem(UNI_KEY) || "null");
+        if (cache && cache.date === todayStr() && cache.rows?.length > 5000) {
+          universe = cache.rows;
+          universeSource = `全市场${cache.rows.length}只`;
+          renderMarket();
+          setUniInfo(null);
+          upgrading = false;
+          return;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    const full = await tryFullUniverse();
+    if (full) {
+      universe = full;
+      universeSource = `全市场${full.length}只`;
+      try { localStorage.setItem(UNI_KEY, JSON.stringify({ date: todayStr(), rows: full })); } catch (e) {}
+      renderMarket();
+      setUniInfo(null);
+    } else {
+      setUniInfo("全量不可用(东财接口受阻), 用核心池 · 点此重试");
+    }
+  } finally { upgrading = false; }
+}
+let upgrading = false;
+function setUniInfo(msg) {
+  const el = $("uniRetry");
+  if (!el) return;
+  if (msg) { el.textContent = msg; el.classList.remove("hidden"); }
+  else el.classList.add("hidden");
 }
 
 // ==================== 腾讯日K(前复权, CORS可用) ====================
@@ -487,16 +555,18 @@ function startTimer() {
 }
 $("intervalSel").addEventListener("change", startTimer);
 $("refreshBtn").addEventListener("click", refreshAll);
+$("uniRetry").addEventListener("click", () => upgradeUniverse(true));
 
 // ==================== 启动 ====================
 (async function init() {
   $("mktState").textContent = stateLabel();
   refreshIndices();
-  await loadUniverse();
+  await loadCorePool();       // 核心池秒开
   renderMarket();
   renderPositions();
   renderHistory();
   selectStock("600519");   // 默认茅台
   refreshAll();
   startTimer();
+  upgradeUniverse();          // 后台升级全市场(~5900只), 成功自动重渲染
 })();
