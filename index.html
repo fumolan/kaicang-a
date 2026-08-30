@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A股开仓 — 5900+只沪深北A股行情、T-1数据、历史K线、财务指标与模拟交易(T+1)。">
+  <title>A股开仓 · 简单算收益</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="logo">📈 A股开仓</div>
+    <div class="motto">T+1 · 无杠杆 · 简单算收益</div>
+    <div class="controls">
+      <div class="search-box">
+        <input id="searchInput" placeholder="代码 / 名称" autocomplete="off">
+        <div id="searchDrop" class="search-drop hidden"></div>
+      </div>
+      <select id="intervalSel" title="刷新间隔">
+        <option value="30" selected>30秒</option>
+        <option value="60">60秒</option>
+        <option value="180">3分</option>
+        <option value="0">手动</option>
+      </select>
+      <button id="refreshBtn" title="立即刷新">🔄</button>
+    </div>
+    <div class="status">
+      <span class="dot" id="statusDot"></span>
+      <span id="lastUpdate">--:--:--</span>
+      <span id="mktState" class="mkt-state"></span>
+    </div>
+  </header>
+
+  <!-- 指数条 -->
+  <div class="idx-strip" id="idxStrip"><span class="loading">指数加载中…</span></div>
+
+  <main>
+    <!-- 市场总览 -->
+    <div class="card mkt-card">
+      <div class="card-title">🌐 市场总览 <span class="sub" id="universeInfo">全市场加载中…</span></div>
+      <div id="breadth" class="breadth"></div>
+      <div class="rank-tabs">
+        <button class="rt-btn active" data-tab="up">涨幅榜</button>
+        <button class="rt-btn" data-tab="down">跌幅榜</button>
+        <button class="rt-btn" data-tab="amt">成交额榜</button>
+        <button class="rt-btn" data-tab="turn">换手榜</button>
+      </div>
+      <div id="rankList" class="rank-list"></div>
+    </div>
+
+    <div class="grid detail-row">
+      <!-- 个股详情 -->
+      <div class="card stock-card">
+        <div class="card-title">📊 个股详情 <span class="sub" id="stockHint">搜索或点击榜单选择股票</span></div>
+        <div id="quoteHead" class="quote-head"><span class="loading">未选择</span></div>
+        <div id="metricGrid" class="metric-grid"></div>
+        <div class="card-sub">📉 日K · 前复权 · 近250交易日</div>
+        <div id="klineChart" class="kline-chart"></div>
+        <div id="rangeStats" class="range-stats"></div>
+      </div>
+
+      <!-- 模拟交易 -->
+      <div class="card trade-card">
+        <div class="card-title">💰 模拟交易 <span class="sub">T+1 · 佣金万2.5(最低5元) · 印花税万5(卖) · 过户费万0.1</span></div>
+        <div class="buy-form">
+          <label>投入金额(元) <input type="number" id="buyAmount" value="10000" min="100" step="100"></label>
+          <button id="buyBtn" class="buy-btn">🛒 买入(整百股)</button>
+        </div>
+        <div id="buyPreview" class="buy-preview"></div>
+        <div class="card-sub">📌 持仓 <span class="sub" id="posSummary"></span></div>
+        <div id="posList" class="pos-list"><span class="loading">暂无持仓</span></div>
+        <div class="card-sub">📜 已完结 <span class="sub" id="histSummary"></span></div>
+        <div id="histList" class="hist-list"><span class="loading">暂无交易</span></div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    数据源: 腾讯行情(实时) + 东方财富(列表/K线) · 数据存本地浏览器 · 仅供学习研究, 不构成投资建议
+  </footer>
+
+  <script src="universe.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
