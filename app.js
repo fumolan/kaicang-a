@@ -264,7 +264,7 @@ function stateLabel() {
 
 // ==================== 指数条 ====================
 async function refreshIndices() {
-  const q = await fetchTX(INDICES.map(i => i.code));
+  const q = await fetchTX([...INDICES.map(i => i.code), "sz000001"]);
   $("idxStrip").innerHTML = INDICES.map(i => {
     const d = q[i.code];
     if (!d) return "";
@@ -274,6 +274,14 @@ async function refreshIndices() {
       <div class="ic-chg ${clsOf(d.changePct)}">${fmtPct(d.changePct)}</div>
     </div>`;
   }).join("") || "<span class='loading'>指数加载失败</span>";
+  // 数据交易日: 用个股快照时间戳判断(指数时间戳恒为当前时刻, 个股才是数据时间)
+  const stock = q["sz000001"];
+  if (stock && stock.time && /^\d{14}$/.test(stock.time)) {
+    const d = stock.time;
+    const ymd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+    const hm = `${d.slice(8, 10)}:${d.slice(10, 12)}`;
+    tradeDateTxt = (ymd === todayStr() ? `今日 ${hm}` : `交易日 ${ymd} ${hm}`);
+  }
 }
 
 // ==================== 市场总览 ====================
@@ -288,7 +296,7 @@ function renderMarket() {
   const totalAmt = universe.reduce((s, x) => s + (x.amt || 0), 0);
   const limUp = universe.filter(s => s.ch >= 9.9).length;
   const limDown = universe.filter(s => s.ch <= -9.9).length;
-  $("universeInfo").textContent = `${universe.length}只沪深北A股 · 成交额${fmtYi(totalAmt)}`;
+  $("universeInfo").textContent = `${universe.length}只沪深北A股 · 成交额${fmtYi(totalAmt)}` + (tradeDateTxt ? ` · ${tradeDateTxt}` : "");
   $("breadth").innerHTML =
     `<span>上涨 <b class="c-up">${up}</b></span><span>下跌 <b class="c-down">${down}</b></span>` +
     `<span>平 <b>${flat}</b></span><span>涨停级 <b class="c-up">${limUp}</b></span>` +
