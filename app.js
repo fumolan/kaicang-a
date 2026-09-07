@@ -669,6 +669,127 @@ async function dbInit() {
   if (await dbPing(true)) await dbPull();
 }
 
+
+// ==================== 行业研究 ====================
+// 同花顺行业代码/名称 → 东财行业板块 → 成分股实时行情
+const IND_KEY = "astk_industry";
+let indBoards = null, indBoardsTime = 0;   // 东财行业板块缓存
+let curInd = null;                          // {code,name,bk,bkName}
+
+function resolveIndustry(q) {
+  q = (q || "").trim();
+  if (!q) return null;
+  let m = q.toUpperCase().match(/^(\d{6})(\.TI)?$/);
+  if (m && THS_INDUSTRIES[m[1]]) return { code: m[1], name: THS_INDUSTRIES[m[1]] };
+  q = q.replace(/\.ti$/i, "");
+  const lower = q.toLowerCase();
+  // 名称精确 → 前缀
+  for (const [c, n] of Object.entries(THS_INDUSTRIES)) {
+    if (n === q || n.toLowerCase() === lower) return { code: c, name: n };
+  }
+  for (const [c, n] of Object.entries(THS_INDUSTRIES)) {
+    if (n.includes(q) || q.includes(n)) return { code: c, name: n };
+  }
+  return null;
+}
+
+async function loadIndBoards() {
+  if (indBoards && Date.now() - indBoardsTime < 600000) return indBoards;
+  const all = [];
+  for (let pn = 1; pn <= 8; pn++) {
+    const d = await emJsonp("https://push2delay.eastmoney.com", {
+      pn: String(pn), pz: "100", po: "1", np: "1", fltt: "2", invt: "2", fid: "f12",
+      fs: "m:90+t:2", fields: "f3,f12,f14",
+    }, 9000).catch(() => null);
+    const diff = d?.data?.diff;
+    if (!diff || !diff.length) break;
+    for (const b of diff) all.push({ bk: b.f12, name: b.f14, chg: +b.f3 || 0 });
+    if (all.length >= (d?.data?.total || 0) || diff.length < 100) break;
+  }
+  if (all.length) { indBoards = all; indBoardsTime = Date.now(); }
+  return indBoards || [];
+}
+
+// 名称匹配东财板块: 原名全等 > THS名+行业 > 归一全等 > 最小长度差包含
+// (避免"电力"误配"电力设备"这类制造板块)
+function matchBoard(indName) {
+  const norm = (x) => x.replace(/行业|板块|Ⅰ|Ⅱ|Ⅲ/g, "");
+  const t = indName;
+  let hit = indBoards.find(b => b.name === t);
+  if (hit) return hit;
+  hit = indBoards.find(b => b.name === t + "行业");
+  if (hit) return hit;
+  hit = indBoards.find(b => norm(b.name) === t);
+  if (hit) return hit;
+  let best = null, bestDiff = 99;
+  for (const b of indBoards) {
+    const bn = norm(b.name);
+    if (bn.includes(t) || t.includes(bn)) {
+      const d = Math.abs(bn.length - t.length);
+      if (d < bestDiff) { bestDiff = d; best = b; }
+    }
+  }
+  return best;
+}
+
+async function fetchBoardStocks(bk) {
+  const rows = [];
+  for (let pn = 1; pn <= 3; pn++) {
+    const d = await emJsonp("https://push2delay.eastmoney.com", {
+      pn: String(pn), pz: "100", po: "1", np: "1", fltt: "2", invt: "2", fid: "f3",
+      fs: "b:" + bk, fields: "f2,f3,f6,f8,f9,f12,f14,f23",
+    }, 9000).catch(() => null);
+    const diff = d?.data?.diff;
+    if (!diff || !diff.length) break;
+    const num = (x) => { const n = parseFloat(x); return isNaN(n) ? 0 : n; };
+    for (const it of diff) {
+      rows.push({ c: it.f12, n: it.f14, p: num(it.f2), ch: num(it.f3),
+        amt: num(it.f6), turn: num(it.f8), pe: it.f9, pb: it.f23 });
+    }
+    if (diff.length < 100) break;
+  }
+  rows.sort((a, b) => b.ch - a.ch);
+  return rows;
+}
+
+async function researchIndustry(query) {
+  const ind = resolveIndustry(query);
+  const title = $("indTitle"), listEl = $("indList"), br = $("indBreadth");
+  if (!ind) { title.innerHTML = '<span style="color:var(--up)">未识别行业代码/名称</span>'; return; }
+  curInd = ind;
+  localStorage.setItem(IND_KEY, ind.code);
+  title.innerHTML = "加载中…";
+  await loadIndBoards();
+  const b = matchBoard(ind.name);
+  if (!b) {
+    title.innerHTML = `<b>${ind.name}</b> (${ind.code}.TI) · <span style="color:var(--up)">未找到对应东财板块, 试试行业别名</span>`;
+    br.innerHTML = ""; listEl.innerHTML = "";
+    return;
+  }
+  curInd.bk = b.bk; curInd.bkName = b.name;
+  const rows = await fetchBoardStocks(b.bk);
+  const up = rows.filter(r => r.ch > 0).length, down = rows.filter(r => r.ch < 0).length;
+  const avg = rows.length ? rows.reduce((s, r) => s + r.ch, 0) / rows.length : 0;
+  const amt = rows.reduce((s, r) => s + r.amt, 0);
+  title.innerHTML = `<b style="color:var(--accent)">${ind.name}</b> (${ind.code}.TI) · 板块今日 <b class="${clsOf(b.chg)}">${fmtPct(b.chg)}</b>`;
+  br.innerHTML =
+    `<span>成分 <b>${rows.length}</b>只(东财:${b.name})</span><span>上涨 <b class="c-up">${up}</b></span>` +
+    `<span>下跌 <b class="c-down">${down}</b></span><span>平均 <b class="${clsOf(avg)}">${fmtPct(avg)}</b></span>` +
+    `<span>合计成交额 <b>${fmtYi(amt)}</b></span>` +
+    (rows.length ? `<span>领涨 <b class="c-up">${rows[0].n} ${fmtPct(rows[0].ch)}</b></span>` : "");
+  listEl.innerHTML = rows.map((r, i) => `<div class="rk-row" data-code="${r.c}">
+    <span class="rk-i">${i + 1}</span><span class="rk-code">${r.c}</span>
+    <span class="rk-name">${r.n}</span><span class="rk-price">${fmt2(r.p)}</span>
+    <span class="rk-chg ${clsOf(r.ch)}">${fmtPct(r.ch)}</span>
+    <span class="rk-extra">额${fmtYi(r.amt)} 换${r.turn.toFixed(1)}% PE${r.pe ?? "--"}</span>
+  </div>`).join("");
+  listEl.querySelectorAll(".rk-row").forEach(el =>
+    el.addEventListener("click", () => selectStock(el.dataset.code)));
+}
+
+$("indGo").addEventListener("click", () => researchIndustry($("indInput").value));
+$("indInput").addEventListener("keydown", (e) => { if (e.key === "Enter") researchIndustry($("indInput").value); });
+
 // ==================== 刷新调度 ====================
 async function refreshAll() {
   $("statusDot").className = "dot";
@@ -695,6 +816,7 @@ $("uniRetry").addEventListener("click", () => upgradeUniverse(true));
   renderPositions();
   renderHistory();
   selectStock("600519");   // 默认茅台
+  researchIndustry(localStorage.getItem(IND_KEY) || "881145");   // 恢复上次行业(默认电力)
   dbInit();               // 数据库同步(连得上就自动拉取, 连不上静默本地)
   refreshAll();
   startTimer();

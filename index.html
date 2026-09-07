@@ -57,7 +57,19 @@
       </div>
     </div>
 
-    <div class="grid detail-row">
+        <!-- 行业研究 -->
+    <div class="card ind-card" id="indCard">
+      <div class="card-title">🏭 行业研究 <span class="sub">输入同花顺行业代码(如881145)或名称 · 成分股实时行情 · 点击进个股</span></div>
+      <div class="ind-bar">
+        <input type="text" id="indInput" placeholder="881145 / 881145.TI / 电力" autocomplete="off">
+        <button id="indGo" class="ind-btn">研究</button>
+        <span id="indTitle" class="ind-title"></span>
+      </div>
+      <div id="indBreadth" class="breadth"></div>
+      <div id="indList" class="rank-list"></div>
+    </div>
+
+<div class="grid detail-row">
       <!-- 个股详情 -->
       <div class="card stock-card">
         <div class="card-title">📊 个股详情 <span class="sub" id="stockHint">搜索或点击榜单选择股票</span></div>
@@ -99,6 +111,7 @@
   </footer>
 
   <script src="universe.js"></script>
+  <script src="ths.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
