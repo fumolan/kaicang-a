@@ -454,6 +454,7 @@ $("buyBtn").addEventListener("click", () => {
   });
   saveTrades(list);
   renderPositions();
+  dbAutoSync();
 });
 
 const sellable = (t) => t.buyDate !== todayStr();   // T+1: 买入当日不可卖
@@ -518,6 +519,7 @@ function sellTrade(id) {
   saveTrades(list);
   renderPositions();
   renderHistory();
+  dbAutoSync();
 }
 
 function renderHistory() {
@@ -570,6 +572,78 @@ $("pgNext").addEventListener("click", () => gotoRankPage(rankPage + 1));
 $("pgGo").addEventListener("click", () => gotoRankPage(+$("pgInput").value));
 $("pgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") gotoRankPage(+$("pgInput").value); });
 
+
+// ==================== 数据库同步(桥接服务 server.py) ====================
+// 浏览器无法直连数据库, 通过局域网桥接服务HTTP转发; 未连接时一切功能照常(localStorage)
+const DB_URL_KEY = "astk_db_url";
+let dbOnline = false;
+
+function dbBase() { return (localStorage.getItem(DB_URL_KEY) || "http://localhost:8765").replace(/\/$/, ""); }
+
+async function dbPing(silent = false) {
+  const el = $("dbStatus");
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const r = await fetch(dbBase() + "/api/db/ping", { signal: ctrl.signal });
+    clearTimeout(t);
+    const d = await r.json();
+    if (d.ok) {
+      dbOnline = true;
+      el.innerHTML = '● <span class="db-on">在线</span> · ' + d.db;
+      return true;
+    }
+    throw new Error(d.error || "失败");
+  } catch (e) {
+    dbOnline = false;
+    if (!silent) el.innerHTML = '● <span class="db-off">离线</span> · ' + (e.message === "The user aborted a request." ? "连不上桥接服务" : e.message);
+    return false;
+  }
+}
+
+async function dbPush() {
+  if (!dbOnline) return;
+  try {
+    await fetch(dbBase() + "/api/trades", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trades: loadTrades() }),
+    });
+  } catch (e) { dbOnline = false; $("dbStatus").innerHTML = '● <span class="db-off">离线</span>'; }
+}
+
+async function dbPull() {
+  if (!dbOnline) return;
+  try {
+    const r = await fetch(dbBase() + "/api/trades");
+    const d = await r.json();
+    if (d.ok && Array.isArray(d.trades)) {
+      saveTrades(d.trades);
+      renderPositions();
+      renderHistory();
+      $("dbStatus").innerHTML = '● <span class="db-on">在线</span> · 已从库载入' + d.trades.length + "笔";
+    }
+  } catch (e) { /* 保持本地 */ }
+}
+
+$("dbTest").addEventListener("click", async () => {
+  localStorage.setItem(DB_URL_KEY, $("dbUrl").value.trim() || "http://localhost:8765");
+  $("dbStatus").innerHTML = "连接中…";
+  if (await dbPing()) await dbPull();
+});
+$("dbSync").addEventListener("click", async () => {
+  localStorage.setItem(DB_URL_KEY, $("dbUrl").value.trim() || "http://localhost:8765");
+  if (await dbPing()) { await dbPush(); await dbPull(); }
+});
+
+// 买卖后自动推送
+function dbAutoSync() { if ($("dbAuto")?.checked && dbOnline) dbPush(); }
+
+async function dbInit() {
+  $("dbUrl").value = localStorage.getItem(DB_URL_KEY) || "http://localhost:8765";
+  if (await dbPing(true)) await dbPull();
+}
+
 // ==================== 刷新调度 ====================
 async function refreshAll() {
   $("statusDot").className = "dot";
@@ -596,6 +670,7 @@ $("uniRetry").addEventListener("click", () => upgradeUniverse(true));
   renderPositions();
   renderHistory();
   selectStock("600519");   // 默认茅台
+  dbInit();               // 数据库同步(连得上就自动拉取, 连不上静默本地)
   refreshAll();
   startTimer();
   upgradeUniverse();          // 后台升级全市场(~5900只), 成功自动重渲染

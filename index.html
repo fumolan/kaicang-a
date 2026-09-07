@@ -80,6 +80,16 @@
         <div id="posList" class="pos-list"><span class="loading">暂无持仓</span></div>
         <div class="card-sub">📜 已完结 <span class="sub" id="histSummary"></span></div>
         <div id="histList" class="hist-list"><span class="loading">暂无交易</span></div>
+        <div class="card-sub">🗄 数据库同步 <span class="sub">写入局域网 MySQL/PG/SQLite</span></div>
+        <div id="dbSyncCard" class="db-sync">
+          <div class="db-row">
+            <input type="text" id="dbUrl" class="db-url" placeholder="http://localhost:8765">
+            <button id="dbTest" class="db-btn">测试</button>
+            <button id="dbSync" class="db-btn">立即同步</button>
+          </div>
+          <label class="db-auto"><input type="checkbox" id="dbAuto" checked> 自动同步(每次买卖即写入)</label>
+          <div id="dbStatus" class="db-status">未连接</div>
+        </div>
       </div>
     </div>
   </main>
