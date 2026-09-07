@@ -773,9 +773,19 @@ async function fetchBoardStocks(bk) {
 }
 
 async function researchIndustry(query) {
-  const ind = resolveIndustry(query);
   const title = $("indTitle"), listEl = $("indList"), br = $("indBreadth");
-  if (!ind) { title.innerHTML = '<span style="color:var(--up)">未识别行业代码/名称</span>'; return; }
+  try {
+  let ind = (typeof THS_INDUSTRIES !== "undefined") ? resolveIndustry(query) : null;
+  // 未命中同花顺目录 → 按东财板块名直查(输入"光伏"等通用名也可用)
+  if (!ind && query && query.trim()) {
+    await loadIndBoards();
+    const q = query.trim();
+    const b = indBoards.find(x => x.name === q) ||
+              indBoards.find(x => x.name.replace(/行业|板块/g, "") === q) ||
+              indBoards.find(x => x.name.includes(q) || q.includes(x.name.replace(/行业|板块/g, "")));
+    if (b) ind = { code: "EM", name: b.name };
+  }
+  if (!ind) { title.innerHTML = '<span style="color:var(--up)">未识别行业代码/名称 (可试: 881145 / 电力 / 光伏设备)</span>'; return; }
   curInd = ind;
   localStorage.setItem(IND_KEY, ind.code);
   title.innerHTML = "加载中…";
@@ -805,6 +815,9 @@ async function researchIndustry(query) {
   </div>`).join("");
   listEl.querySelectorAll(".rk-row").forEach(el =>
     el.addEventListener("click", () => selectStock(el.dataset.code)));
+  } catch (e) {
+    title.innerHTML = '<span style="color:var(--up)">加载失败: ' + (e.message || e) + ' · 请刷新页面</span>';
+  }
 }
 
 $("indGo").addEventListener("click", () => researchIndustry($("indInput").value));
