@@ -580,8 +580,20 @@ let dbOnline = false;
 
 function dbBase() { return (localStorage.getItem(DB_URL_KEY) || "http://localhost:8765").replace(/\/$/, ""); }
 
+// 混合内容检测: https页面(GitHub Pages)无法直连http内网地址, 唯一豁免localhost
+function dbBlockedByMixedContent(url) {
+  return location.protocol === "https:" &&
+    /^http:\/\//i.test(url) &&
+    !/\/\/(localhost|127\.0\.0\.1)(:|\/)/i.test(url);
+}
+
 async function dbPing(silent = false) {
   const el = $("dbStatus");
+  if (dbBlockedByMixedContent(dbBase())) {
+    dbOnline = false;
+    el.innerHTML = '● <span class="db-off">被浏览器拦截</span> · https页面不能直连http内网地址, 改用 <b>http://localhost:8088/astk</b>(Mac先执行ssh转发) 或直接访问网关页 http://10.168.1.178:8088/astk/';
+    return false;
+  }
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 4000);
