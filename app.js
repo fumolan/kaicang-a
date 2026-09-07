@@ -640,7 +640,12 @@ $("dbSync").addEventListener("click", async () => {
 function dbAutoSync() { if ($("dbAuto")?.checked && dbOnline) dbPush(); }
 
 async function dbInit() {
-  $("dbUrl").value = localStorage.getItem(DB_URL_KEY) || "http://localhost:8765";
+  let def = localStorage.getItem(DB_URL_KEY) || "http://localhost:8765";
+  // 经Kong网关打开时默认同源(http页面无跨域限制)
+  if (!localStorage.getItem(DB_URL_KEY) && location.protocol === "http:" && /:8088$/.test(location.host)) {
+    def = location.origin + "/astk";
+  }
+  $("dbUrl").value = def;
   if (await dbPing(true)) await dbPull();
 }
 
