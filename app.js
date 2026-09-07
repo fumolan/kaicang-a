@@ -280,7 +280,7 @@ async function refreshIndices() {
     const d = stock.time;
     const ymd = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
     const hm = `${d.slice(8, 10)}:${d.slice(10, 12)}`;
-    tradeDateTxt = (ymd === todayStr() ? `今日 ${hm}` : `交易日 ${ymd} ${hm}`);
+    tradeDateTxt = `交易日 ${ymd} ${hm}`;
   }
 }
 
@@ -387,32 +387,52 @@ async function loadKline() {
   renderKline();
 }
 function renderKline() {
-  const W = 560, H = 200, PL = 62, PR = 10, PT = 10, PB = 20;
+  const W = 640, H = 230, PL = 74, PR = 14, PT = 12, PB = 26;
   const cw = W - PL - PR, chh = H - PT - PB;
   const closes = kline.map(k => k.close);
   const ma = (n) => closes.map((_, i) => i < n - 1 ? null : closes.slice(i - n + 1, i + 1).reduce((s, v) => s + v, 0) / n);
   const ma20 = ma(20);
   const hi250 = Math.max(...kline.map(k => k.high));
   const lo250 = Math.min(...kline.map(k => k.low));
-  const range = hi250 - lo250 || 1;
+  const rawStep = (hi250 - lo250) / 5 || hi250 * 0.002 || 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const step = [1, 2, 2.5, 5, 10].map(x => x * mag).find(x => x >= rawStep) || 10 * mag;
+  const gridTop = Math.ceil(hi250 / step) * step;
+  const gridBot = Math.floor(lo250 / step) * step;
+  const gLo = Math.min(lo250, gridBot), gHi = Math.max(hi250, gridTop);
+  const range = gHi - gLo || 1;
   const x = i => PL + (i / (kline.length - 1)) * cw;
-  const y = p => PT + (1 - (p - lo250) / range) * chh;
+  const y = p => PT + (1 - (p - gLo) / range) * chh;
+  const fmtG = (p) => p >= 1000 ? p.toFixed(0) : p >= 10 ? p.toFixed(1) : p.toFixed(p >= 1 ? 2 : 4);
+
   const chg = (closes[closes.length - 1] / closes[0] - 1) * 100;
   const lc = chg >= 0 ? "#e54545" : "#24b28c";
   const pts = closes.map((c, i) => `${x(i).toFixed(1)},${y(c).toFixed(1)}`).join(" ");
   const maPts = ma20.map((m, i) => m === null ? null : `${x(i).toFixed(1)},${y(m).toFixed(1)}`).filter(Boolean).join(" ");
+
+  let grid = "";
+  for (let p = gridTop; p >= gridBot - 1e-9; p -= step) {
+    const yy = y(p);
+    grid += `<line x1="${PL}" y1="${yy}" x2="${W - PR}" y2="${yy}" stroke="#232a3a" stroke-width="0.6"/>` +
+      `<text x="${PL - 5}" y="${yy + 3}" text-anchor="end" font-size="8.5" fill="#7a8299">${fmtG(p)}</text>`;
+  }
+  const nDiv = 6;
+  for (let g = 0; g <= nDiv; g++) {
+    const i = Math.round(g * (kline.length - 1) / nDiv);
+    const xx = x(i);
+    grid += `<line x1="${xx}" y1="${PT}" x2="${xx}" y2="${H - PB}" stroke="#232a3a" stroke-width="0.6" ${g === 0 || g === nDiv ? "" : 'stroke-dasharray="2,3"'}/>`;
+    const d = kline[i].date;
+    grid += `<text x="${xx}" y="${H - 8}" text-anchor="${g === 0 ? "start" : g === nDiv ? "end" : "middle"}" font-size="8" fill="#7a8299">${g === 0 ? d : d.slice(5)}</text>`;
+  }
+
   $("klineChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}">
-    <line x1="${PL}" y1="${y(hi250)}" x2="${W-PR}" y2="${y(hi250)}" stroke="#2a3242" stroke-dasharray="3,3" stroke-width="0.5"/>
-    <line x1="${PL}" y1="${y(lo250)}" x2="${W-PR}" y2="${y(lo250)}" stroke="#2a3242" stroke-dasharray="3,3" stroke-width="0.5"/>
-    <text x="${PL-4}" y="${y(hi250)+3}" text-anchor="end" font-size="8.5" fill="#7a8299">${fmt2(hi250)}</text>
-    <text x="${PL-4}" y="${y(lo250)+3}" text-anchor="end" font-size="8.5" fill="#7a8299">${fmt2(lo250)}</text>
+    ${grid}
+    <polygon points="${PL},${H-PB} ${pts} ${x(closes.length-1)},${H-PB}" fill="${lc}" opacity="0.06"/>
     <polyline points="${maPts}" fill="none" stroke="#f0b90b" stroke-width="1" opacity="0.75"/>
-    <polygon points="${PL},${H-PB} ${pts} ${x(closes.length-1)},${H-PB}" fill="${lc}" opacity="0.07"/>
     <polyline points="${pts}" fill="none" stroke="${lc}" stroke-width="1.5"/>
     <circle cx="${x(closes.length-1)}" cy="${y(closes[closes.length-1])}" r="2.6" fill="${lc}"/>
     <text x="${W-PR}" y="13" text-anchor="end" font-size="10.5" fill="${lc}" font-weight="700">${fmtPct(chg)}</text>
-    <text x="${PL}" y="${H-6}" font-size="8" fill="#7a8299">${kline[0].date}</text>
-    <text x="${W-PR}" y="${H-6}" text-anchor="end" font-size="8" fill="#7a8299">${kline[kline.length-1].date} · 黄线MA20</text>
+    <text x="${PL}" y="13" font-size="8" fill="#7a8299">高${fmtG(hi250)} 低${fmtG(lo250)} · 黄线MA20</text>
   </svg>`;
 
   const chgN = (n) => closes.length > n ? (closes[closes.length - 1] / closes[closes.length - 1 - n] - 1) * 100 : null;
