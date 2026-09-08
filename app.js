@@ -341,6 +341,49 @@ function gotoRankPage(p) {
 }
 
 // ==================== 个股详情 ====================
+// ==================== ROE等财报指标(东财F10, datacenter浏览器可直连) ====================
+const roeCache = {};
+async function fetchROE(code) {
+  if (roeCache[code]) return roeCache[code];
+  const suf = /^[69]/.test(code) ? ".SH" : /^[48]/.test(code) || code.startsWith("92") ? ".BJ" : ".SZ";
+  const url = "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_F10_FINANCE_MAINFINADATA" +
+    "&columns=SECUCODE,REPORT_DATE,ROEJQ,EPSJB,BPS&pageNumber=1&pageSize=1" +
+    "&sortColumns=REPORT_DATE&sortTypes=-1&source=HSF10&client=CONFIG" +
+    "&filter=" + encodeURIComponent(`(SECUCODE="${code}${suf}")`);
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    const d = await r.json();
+    const row = d?.result?.data?.[0];
+    if (row) {
+      roeCache[code] = {
+        roe: row.ROEJQ, eps: row.EPSJB, bps: row.BPS,
+        date: (row.REPORT_DATE || "").slice(0, 10),
+      };
+    }
+  } catch (e) { /* 财报接口失败不影响行情 */ }
+  return roeCache[code] || null;
+}
+function renderRoeCells() {
+  const c = roeCache[curCode];
+  const roeEl = $("roeV"), epsEl = $("epsV"), bpsEl = $("bpsV"), dateEl = $("roeDate");
+  if (!roeEl) return;
+  if (c) {
+    const roeCls = c.roe == null ? "" : c.roe >= 15 ? "c-up" : c.roe < 0 ? "c-down" : "";
+    roeEl.innerHTML = `<span class="v ${roeCls}" title="报告期${c.date}">${c.roe == null ? "--" : c.roe.toFixed(2) + "%"}</span>`;
+    epsEl.innerHTML = `<span class="v">${c.eps ?? "--"}</span>`;
+    bpsEl.innerHTML = `<span class="v">${c.bps == null ? "--" : c.bps.toFixed(2)}</span>`;
+    dateEl.innerHTML = `<span class="v">${c.date || "--"}</span>`;
+  } else {
+    roeEl.innerHTML = '<span class="v loading">…</span>';
+    epsEl.innerHTML = '<span class="v">--</span>';
+    bpsEl.innerHTML = '<span class="v">--</span>';
+    dateEl.innerHTML = '<span class="v">--</span>';
+  }
+}
+
 async function selectStock(code, silent = false) {
   curCode = code;
   $("searchInput").value = "";
@@ -350,6 +393,7 @@ async function selectStock(code, silent = false) {
   $("quoteHead").innerHTML = "<span class='loading'>加载中…</span>";
   refreshQuote();
   loadKline();
+  fetchROE(code).then(renderRoeCells);
 }
 async function refreshQuote() {
   if (!curCode) return;
@@ -372,7 +416,12 @@ async function refreshQuote() {
     mg("PE(TTM)", d.peTtm ?? "--") + mg("PB", d.pb ?? "--") +
     mg("总市值", (d.mcap ?? "--") + "亿") + mg("流通市值", (d.floatMcap ?? "--") + "亿") +
     mg("量比", d.volRatio ?? "--") +
-    mg("涨停", fmt2(d.limitUp), "c-up") + mg("跌停", fmt2(d.limitDown), "c-down");
+    mg("涨停", fmt2(d.limitUp), "c-up") + mg("跌停", fmt2(d.limitDown), "c-down") +
+    `<div class="mg-cell"><span class="k">ROE(加权)</span><span id="roeV">--</span></div>` +
+    `<div class="mg-cell"><span class="k">每股收益</span><span id="epsV">--</span></div>` +
+    `<div class="mg-cell"><span class="k">每股净资产</span><span id="bpsV">--</span></div>` +
+    `<div class="mg-cell"><span class="k">财报报告期</span><span id="roeDate">--</span></div>`;
+  renderRoeCells();
   updateBuyPreview();
   updatePositionsLive();
 }
