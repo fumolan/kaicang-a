@@ -69,17 +69,24 @@
       <div id="indList" class="rank-list"></div>
     </div>
 
-<div class="grid detail-row">
-      <!-- 个股详情 -->
-      <div class="card stock-card">
-        <div class="card-title">📊 个股详情 <span class="sub" id="stockHint">搜索或点击榜单选择股票</span></div>
-        <div id="quoteHead" class="quote-head"><span class="loading">未选择</span></div>
-        <div id="metricGrid" class="metric-grid"></div>
-        <div class="card-sub">📉 日K · 前复权 · 近250交易日</div>
-        <div id="klineChart" class="kline-chart"></div>
-        <div id="rangeStats" class="range-stats"></div>
+    <!-- 个股详情抽屉: 点个股从右侧滑出 -->
+    <div class="drawer-overlay hidden" id="stockDrawer">
+      <div class="drawer">
+        <div class="drawer-head">
+          <span class="drawer-title">📊 个股详情 <span class="sub" id="stockHint">搜索或点击榜单选择股票</span></span>
+          <button class="drawer-close" id="drawerClose">&times;</button>
+        </div>
+        <div class="drawer-body">
+          <div id="quoteHead" class="quote-head"><span class="loading">未选择</span></div>
+          <div id="metricGrid" class="metric-grid"></div>
+          <div class="card-sub">📉 日K · 前复权 · 近250交易日</div>
+          <div id="klineChart" class="kline-chart"></div>
+          <div id="rangeStats" class="range-stats"></div>
+        </div>
       </div>
+    </div>
 
+<div class="detail-row">
       <!-- 模拟交易 -->
       <div class="card trade-card">
         <div class="card-title">💰 模拟交易 <span class="sub">T+1 · 佣金万2.5(最低5元) · 印花税万5(卖) · 过户费万0.1</span></div>

@@ -341,10 +341,11 @@ function gotoRankPage(p) {
 }
 
 // ==================== 个股详情 ====================
-async function selectStock(code) {
+async function selectStock(code, silent = false) {
   curCode = code;
   $("searchInput").value = "";
   $("searchDrop").classList.add("hidden");
+  if (!silent) $("stockDrawer").classList.remove("hidden");   // 交互点击才弹抽屉
   $("stockHint").textContent = "加载中…";
   $("quoteHead").innerHTML = "<span class='loading'>加载中…</span>";
   refreshQuote();
@@ -821,6 +822,13 @@ async function researchIndustry(query) {
 }
 
 $("indGo").addEventListener("click", () => researchIndustry($("indInput").value));
+$("drawerClose").addEventListener("click", () => $("stockDrawer").classList.add("hidden"));
+$("stockDrawer").addEventListener("click", (e) => {
+  if (e.target.id === "stockDrawer") $("stockDrawer").classList.add("hidden");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $("stockDrawer").classList.add("hidden");
+});
 $("indInput").addEventListener("keydown", (e) => { if (e.key === "Enter") researchIndustry($("indInput").value); });
 
 // ==================== 刷新调度 ====================
@@ -848,7 +856,7 @@ $("uniRetry").addEventListener("click", () => upgradeUniverse(true));
   renderMarket();
   renderPositions();
   renderHistory();
-  selectStock("600519");   // 默认茅台
+  selectStock("600519", true);   // 默认茅台(静默, 不弹抽屉)
   researchIndustry(localStorage.getItem(IND_KEY) || "881145");   // 恢复上次行业(默认电力)
   dbInit();               // 数据库同步(连得上就自动拉取, 连不上静默本地)
   refreshAll();

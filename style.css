@@ -137,3 +137,14 @@ main { padding: 0 16px 16px; }
 .ind-btn { background: rgba(240,185,11,0.15); color: var(--accent); border: 1px solid rgba(240,185,11,0.4); border-radius: 6px; padding: 5px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
 .ind-btn:hover { background: rgba(240,185,11,0.3); }
 .ind-title { font-size: 13px; font-weight: 700; }
+
+/* 个股详情抽屉 */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; display: flex; justify-content: flex-end; }
+.drawer-overlay.hidden { display: none; }
+.drawer { width: min(600px, 94vw); height: 100%; background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; animation: slideIn .18s ease-out; }
+@keyframes slideIn { from { transform: translateX(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: 700; position: sticky; top: 0; background: var(--card); }
+.drawer-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; padding: 2px 8px; }
+.drawer-close:hover { color: var(--accent); }
+.drawer-body { padding: 12px 14px; overflow-y: auto; flex: 1; }
+.detail-row { margin-top: 0; }
