@@ -6,7 +6,7 @@
   <meta name="description" content="A股开仓 — 5900+只沪深北A股行情、T-1数据、历史K线、财务指标与模拟交易(T+1)。">
   <title>A股开仓 · 简单算收益</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
-  <link rel="stylesheet" href="style.css?v=20260908081933">
+  <link rel="stylesheet" href="style.css?v=20260908083120">
 </head>
 <body>
   <!-- 顶栏 -->
@@ -82,6 +82,9 @@
           <div class="card-sub">📉 日K · 前复权 · 近250交易日</div>
           <div id="klineChart" class="kline-chart"></div>
           <div id="rangeStats" class="range-stats"></div>
+          <div class="card-sub" style="margin-top:12px">🧭 跌透检测 <span class="sub">估值/股息/量能/基本面(一票否决)/时间/年线</span></div>
+          <button id="dipBtn" class="dip-btn">开始检测</button>
+          <div id="dipResult" class="dip-result"></div>
         </div>
       </div>
     </div>
@@ -117,8 +120,8 @@
     数据源: 腾讯行情(实时) + 东方财富(列表/K线) · 数据存本地浏览器 · 仅供学习研究, 不构成投资建议
   </footer>
 
-  <script src="universe.js?v=20260908081933"></script>
-  <script src="ths.js?v=20260908081933"></script>
-  <script src="app.js?v=20260908081933"></script>
+  <script src="universe.js?v=20260908083120"></script>
+  <script src="ths.js?v=20260908083120"></script>
+  <script src="app.js?v=20260908083120"></script>
 </body>
 </html>

@@ -740,6 +740,160 @@ async function dbInit() {
 }
 
 
+
+// ==================== 跌透检测(六维打分) ====================
+// 跌透 ≠ 不会再跌, 而是: 下行空间有限 + 等待有报酬 + 基本面没坏 同时成立
+const dipCache = {};
+
+async function fetchKlineLong(code) {   // 约10年日K(前复权, 单次上限800根→分段拉取拼接)
+  if (dipCache[code]?.kl) return dipCache[code].kl;
+  const full = txFull(code);
+  const seg = async (start, end) => {
+    try {
+      const r = await fetch(`https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${full},day,${start},${end},800,qfq`,
+        { signal: AbortSignal.timeout(12000) });
+      const d = await r.json();
+      const node = d?.data?.[full];
+      const rows = node?.qfqday || node?.day || [];
+      return rows.map(p => ({ date: p[0], close: +p[2], high: +p[3], low: +p[4], vol: +p[5] }));
+    } catch (e) { return []; }
+  };
+  const fmtD = (dt) => dt.toISOString().slice(0, 10);
+  const back = (n) => { const d = new Date(); d.setFullYear(d.getFullYear() - n); return fmtD(d); };
+  const parts = await Promise.all([seg("", ""), seg(back(7), back(3)), seg(back(10), back(6)), seg(back(13), back(9))]);
+  const seen = new Set();
+  const kl = [];
+  for (const arr of parts) for (const k of arr) {
+    if (!seen.has(k.date)) { seen.add(k.date); kl.push(k); }
+  }
+  kl.sort((a, b) => a.date < b.date ? -1 : 1);
+  dipCache[code] = dipCache[code] || {};
+  dipCache[code].kl = kl;
+  return kl;
+}
+
+async function fetchDividends(code) {   // 分红历史(每股税前)
+  if (dipCache[code]?.div) return dipCache[code].div;
+  dipCache[code] = dipCache[code] || {};
+  const url = "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_SHAREBONUS_DET" +
+    "&columns=SECURITY_CODE,EX_DIVIDEND_DATE,PRETAX_BONUS_RMB&pageNumber=1&pageSize=60" +
+    "&sortColumns=EX_DIVIDEND_DATE&sortTypes=-1&source=WEB&client=WEB" +
+    "&filter=" + encodeURIComponent(`(SECURITY_CODE="${code}")`);
+  const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
+  const d = await r.json();
+  const div = (d?.result?.data || [])
+    .filter(x => x.EX_DIVIDEND_DATE && +x.PRETAX_BONUS_RMB > 0)
+    .map(x => ({ date: x.EX_DIVIDEND_DATE, amt: +x.PRETAX_BONUS_RMB / 10 }));  // 字段是每10股派息
+  dipCache[code].div = div;
+  return div;
+}
+
+async function fetchFinMain(code) {     // 近3年主要财务指标
+  if (dipCache[code]?.fin) return dipCache[code].fin;
+  dipCache[code] = dipCache[code] || {};
+  const suf = /^[69]/.test(code) ? ".SH" : /^[48]/.test(code) || code.startsWith("92") ? ".BJ" : ".SZ";
+  const url = "https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_F10_FINANCE_MAINFINADATA" +
+    "&columns=ALL&pageNumber=1&pageSize=12&sortColumns=REPORT_DATE&sortTypes=-1&source=HSF10&client=CONFIG" +
+    "&filter=" + encodeURIComponent(`(SECUCODE="${code}${suf}")`);
+  const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
+  const d = await r.json();
+  const fin = d?.result?.data || [];
+  dipCache[code].fin = fin;
+  return fin;
+}
+
+function pctRank(arr, v) {   // v 在 arr 中的百分位(低于v的时间占比)
+  let n = 0;
+  for (const x of arr) if (x <= v) n++;
+  return n / arr.length * 100;
+}
+const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
+
+async function runDipCheck() {
+  if (!curCode) return;
+  const el = $("dipResult");
+  el.innerHTML = '<span class="loading">检测中: 拉10年K线/分红/财报…</span>';
+  const [klR, divR, finR] = await Promise.allSettled([fetchKlineLong(curCode), fetchDividends(curCode), fetchFinMain(curCode)]);
+  const kl = klR.status === "fulfilled" ? klR.value : [];
+  const div = divR.status === "fulfilled" ? divR.value : [];
+  const fin = finR.status === "fulfilled" ? finR.value : [];
+  if (kl.length < 300) { el.innerHTML = '<span class="loading">K线数据不足, 无法检测</span>'; return; }
+
+  const closes = kl.map(k => k.close);
+  const cur = closes[closes.length - 1];
+  const checks = [];
+
+  // ① 估值跌透: 价格历史分位(近似PB分位, 净资产变化慢)
+  const pricePct = pctRank(closes, cur);
+  checks.push({ name: "① 估值跌透", detail: `价格历史分位 ${pricePct.toFixed(1)}% (${kl.length}日窗口, 近似PB分位) — 需<20%`, pass: pricePct < 20 });
+
+  // ② 股息率跌透: TTM股息率>5% 或 处于自身历史≥80%分位
+  const yearAgo = Date.now() / 1000 - 365 * 86400;
+  const ttmDiv = div.filter(x => new Date(x.date).getTime() / 1000 >= yearAgo).reduce((s, x) => s + x.amt, 0);
+  const yld = ttmDiv > 0 ? ttmDiv / cur * 100 : 0;
+  // 历年股息率 = 当年每股分红合计 / 当年均价
+  const divByYear = {}, closeByYear = {};
+  div.forEach(x => { const y = x.date.slice(0, 4); divByYear[y] = (divByYear[y] || 0) + x.amt; });
+  kl.forEach(k => { const y = k.date.slice(0, 4); (closeByYear[y] = closeByYear[y] || []).push(k.close); });
+  const histYields = Object.keys(divByYear).filter(y => closeByYear[y]?.length > 100)
+    .map(y => divByYear[y] / mean(closeByYear[y]) * 100).filter(v => v > 0);
+  const yPct = histYields.length >= 5 ? pctRank(histYields, yld) : null;
+  const divPass = yld > 5 || (yPct !== null && yPct >= 80);
+  checks.push({ name: "② 股息率跌透", detail: ttmDiv > 0
+    ? `TTM股息率 ${yld.toFixed(2)}%${yPct !== null ? ` · 自身历史${yPct.toFixed(0)}%分位` : ` · 历史样本${histYields.length}年不足`} — 需>5%或≥80%分位`
+    : "近12个月无分红 — 等待无报酬", pass: divPass });
+
+  // ③ 情绪跌透: 量能比 = 20日均量/250日均量, <0.5地量
+  const vols = kl.map(k => k.vol);
+  const vRatio = mean(vols.slice(-20)) / (mean(vols.slice(-250)) || 1);
+  checks.push({ name: "③ 情绪跌透(地量)", detail: `量能比 ${vRatio.toFixed(2)} (20日均量/250日均量) — 需<0.5`, pass: vRatio < 0.5 });
+
+  // ④ 基本面没坏(一票否决): 净利润同比>-20% 且 ROE>0 且 ROE没坍塌
+  const f0 = fin[0] || {};
+  const npTz = f0.PARENTNETPROFITTZ ?? null;
+  const roe = f0.ROEJQ ?? null;
+  const roeTz = f0.ROEJQTZ ?? null;
+  const finOk = npTz !== null && roe !== null && npTz > -20 && roe > 0 && (roeTz === null || roeTz > -30);
+  checks.push({ name: "④ 基本面没坏 ⚠️否决项", detail: fin.length
+    ? `最新${f0.REPORT_DATE_NAME || ""}: 归母净利同比${npTz === null ? "--" : npTz.toFixed(1) + "%"} · ROE${roe ?? "--"}%${roeTz !== null ? `(${roeTz >= 0 ? "+" : ""}${roeTz.toFixed(0)}%)` : ""} — 需同比>-20%且ROE为正`
+    : "财报数据不可得", pass: !!finOk, veto: true });
+
+  // ⑤ 时间跌透: 距最高点≥250交易日 且 近60日横盘(振幅<15%) 且 低位
+  let hiIdx = 0;
+  kl.forEach((k, i) => { if (k.high > kl[hiIdx].high) hiIdx = i; });
+  const barsSinceHigh = kl.length - 1 - hiIdx;
+  const c60 = closes.slice(-60);
+  const range60 = (Math.max(...c60) - Math.min(...c60)) / Math.min(...c60) * 100;
+  const timeOk = barsSinceHigh >= 250 && range60 < 15 && pricePct < 35;
+  checks.push({ name: "⑤ 时间跌透", detail: `距最高点${barsSinceHigh}交易日(需≥250≈12月) · 近60日振幅${range60.toFixed(1)}%(需<15%) · 分位${pricePct.toFixed(0)}%(需<35)`, pass: timeOk });
+
+  // ⑥ 年线: 现价在MA250下方 且 年线走平(60日前MA250与现在差<3%)
+  const ma250 = mean(closes.slice(-250));
+  const ma250prev = mean(closes.slice(-310, -60));
+  const maFlat = ma250prev > 0 && Math.abs(ma250 / ma250prev - 1) < 0.03;
+  checks.push({ name: "⑥ 年线下方且走平", detail: `现价${fmt2(cur)} vs 年线${fmt2(ma250)}(${cur < ma250 ? "下方✓" : "上方✗"}) · 年线斜率${((ma250 / ma250prev - 1) * 100).toFixed(1)}%(|<3%|走平${maFlat ? "✓" : "✗"})`, pass: cur < ma250 && maFlat });
+
+  // 判定: ④必须过, 共≥4条满足 → 跌透
+  const passed = checks.filter(c => c.pass).length;
+  const veto = checks.find(c => c.veto);
+  let verdict, vColor;
+  if (!veto.pass) { verdict = "⚠️ 基本面恶化 — 一票否决, 这不是跌透, 可能是杀业绩进行中"; vColor = "var(--up)"; }
+  else if (passed >= 5) { verdict = "🟢 跌透区域 — 进入击球区 (建议分3批, 股息是等待的工资)"; vColor = "var(--down)"; }
+  else if (passed === 4) { verdict = "🟡 接近跌透 — 差一口气, 等最后一维确认"; vColor = "var(--accent)"; }
+  else { verdict = "🔴 未跌透 — 别急着接"; vColor = "var(--up)"; }
+
+  el.innerHTML =
+    `<div class="dip-verdict" style="border-color:${vColor};color:${vColor}">${verdict} · ${passed}/6 通过</div>` +
+    checks.map(c => `<div class="dip-row">
+      <span class="dip-name">${c.name}</span>
+      <span class="dip-detail">${c.detail}</span>
+      <span class="dip-mark ${c.pass ? "ok" : "no"}">${c.pass ? "✓" : "✗"}</span>
+    </div>`).join("") +
+    `<div class="dip-note">跌透≠不会再跌。全通过只是"进入击球区", 实操分批买入; 高股息稳态股(如水电)阈值可放宽。</div>`;
+}
+
+$("dipBtn").addEventListener("click", runDipCheck);
+
 // ==================== 行业研究 ====================
 // 同花顺行业代码/名称 → 东财行业板块 → 成分股实时行情
 const IND_KEY = "astk_industry";
